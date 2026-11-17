@@ -1,0 +1,18 @@
+# 由 windows/scale_in.py 呼叫：ansible-playbook scale_in.yml --limit app-3,app-4
+- name: 縮減節點
+  hosts: scale
+  gather_facts: no
+  tasks:
+    - name: 從兩台 LB 移出（等處理中的請求完成）
+      community.general.haproxy:
+        state: disabled
+        host: "{{ inventory_hostname }}"
+        backend: apps
+        socket: /var/lib/haproxy/stats
+        drain: yes
+      delegate_to: "{{ item }}"
+      loop: "{{ groups['balancers'] }}"
+
+    - name: 關機
+      community.general.shutdown:
+        delay: 0

@@ -1,0 +1,37 @@
+# 滾動更新：ansible-playbook rolling.yml -e site_version=v2
+- name: 滾動更新網站
+  hosts: apps
+  serial: 1
+  tasks:
+    - name: 從兩台 LB 移出（等處理中的請求完成）
+      community.general.haproxy:
+        state: disabled
+        host: "{{ inventory_hostname }}"
+        backend: apps
+        socket: /var/lib/haproxy/stats
+        drain: yes
+      delegate_to: "{{ item }}"
+      loop: "{{ groups['balancers'] }}"
+
+    - name: 更新網站內容
+      include_tasks: site_tasks.yml
+
+    - name: 確認網站正常
+      uri:
+        url: "http://{{ ansible_host }}/health"
+        status_code: 200
+      delegate_to: localhost
+
+    - name: 暫停 10 秒（方便觀察）
+      pause:
+        seconds: 10
+
+    - name: 加回兩台 LB（等健康檢查通過）
+      community.general.haproxy:
+        state: enabled
+        host: "{{ inventory_hostname }}"
+        backend: apps
+        socket: /var/lib/haproxy/stats
+        wait: yes
+      delegate_to: "{{ item }}"
+      loop: "{{ groups['balancers'] }}"

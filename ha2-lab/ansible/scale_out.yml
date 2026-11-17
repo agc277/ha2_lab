@@ -1,0 +1,24 @@
+# 由 windows/scale_out.py 呼叫：ansible-playbook scale_out.yml --limit app-3,app-4
+- name: 等待新主機開機
+  hosts: scale
+  gather_facts: no
+  tasks:
+    - wait_for_connection:
+        timeout: 180
+
+- import_playbook: apps.yml
+- import_playbook: monitoring.yml
+
+- name: 加入負載平衡
+  hosts: scale
+  gather_facts: no
+  tasks:
+    - name: 在兩台 LB 啟用並等待 UP
+      community.general.haproxy:
+        state: enabled
+        host: "{{ inventory_hostname }}"
+        backend: apps
+        socket: /var/lib/haproxy/stats
+        wait: yes
+      delegate_to: "{{ item }}"
+      loop: "{{ groups['balancers'] }}"

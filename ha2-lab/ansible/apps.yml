@@ -1,0 +1,53 @@
+- name: 部署網站
+  hosts: apps:scale
+  tasks:
+    - name: 安裝套件
+      dnf:
+        name: [nginx, python3-libsemanage]
+        state: present
+
+    - name: 網站內容
+      include_tasks: site_tasks.yml
+
+    - name: 健康檢查頁面
+      copy:
+        content: "OK\n"
+        dest: /usr/share/nginx/html/health
+
+    # 壓力測試用的大檔（約 100 KB）。放進 playbook，擴展出來的 app-3、app-4 也會有，
+    # 否則新節點回 404，ab 會記成 Non-2xx 失敗。
+    - name: 壓力測試檔 bench.txt
+      shell: head -c 75000 /dev/urandom | base64 > /usr/share/nginx/html/bench.txt
+      args:
+        creates: /usr/share/nginx/html/bench.txt
+
+    - name: SELinux 允許 Nginx 轉送到 Prometheus
+      ansible.posix.seboolean:
+        name: httpd_can_network_connect
+        state: yes
+        persistent: yes
+
+    - name: Nginx 監控頁設定
+      template:
+        src: templates/nginx-dashboard.conf.j2
+        dest: /etc/nginx/default.d/dashboard.conf
+      notify: 重新載入 Nginx
+
+    - name: 開放 HTTP
+      ansible.posix.firewalld:
+        service: http
+        permanent: yes
+        immediate: yes
+        state: enabled
+
+    - name: 啟動 Nginx
+      service:
+        name: nginx
+        state: started
+        enabled: yes
+
+  handlers:
+    - name: 重新載入 Nginx
+      service:
+        name: nginx
+        state: reloaded

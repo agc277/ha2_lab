@@ -1,0 +1,324 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>HA2 即時監控</title>
+<style>
+:root{--bg:#0f1420;--panel:#171e2e;--line:#26314a;--text:#e6ebf5;--muted:#8d9ab3;--ok:#2ecc8f;--warn:#f5b642;--bad:#ff5d5d;--info:#4aa8ff;--maint:#c08a3e}
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:var(--bg);color:var(--text);font-family:"Noto Sans TC","Microsoft JhengHei",system-ui,sans-serif;padding:24px;max-width:1280px;margin:0 auto}
+header{display:flex;justify-content:space-between;align-items:flex-end;gap:16px;flex-wrap:wrap;margin-bottom:20px}
+h1{font-size:26px;font-weight:700}
+.sub{color:var(--muted);font-size:14px;margin-top:4px}
+.clock{font-size:28px;font-variant-numeric:tabular-nums;text-align:right}
+.status{display:inline-flex;align-items:center;gap:8px;padding:6px 14px;border-radius:999px;font-weight:700;font-size:14px;margin-top:6px}
+.status.ok{background:rgba(46,204,143,.15);color:var(--ok)}
+.status.bad{background:rgba(255,93,93,.15);color:var(--bad)}
+.dot{width:10px;height:10px;border-radius:50%;background:currentColor}
+.kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:12px;margin-bottom:20px}
+.kpi{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:16px}
+.kpi .label{color:var(--muted);font-size:13px}
+.kpi .value{font-size:28px;font-weight:700;margin-top:6px;font-variant-numeric:tabular-nums}
+.kpi .hint{color:var(--muted);font-size:12px;margin-top:4px}
+section{margin-bottom:20px}
+h2{font-size:16px;color:var(--muted);font-weight:600;margin-bottom:10px}
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:12px}
+.card{background:var(--panel);border:1px solid var(--line);border-left:4px solid var(--ok);border-radius:12px;padding:14px 16px;transition:border-color .3s,box-shadow .3s}
+.card.warn{border-left-color:var(--warn)}
+.card.bad{border-left-color:var(--bad)}
+.card.maint{border-left-color:var(--maint)}
+.card.vip{box-shadow:0 0 0 2px var(--info)}
+.card .top{display:flex;justify-content:space-between;align-items:center;gap:8px}
+.card .name{font-weight:700;font-size:17px}
+.tags{display:flex;gap:4px;flex-wrap:wrap;justify-content:flex-end}
+.tag{font-size:12px;padding:2px 8px;border-radius:6px;background:var(--line);color:var(--text);white-space:nowrap}
+.tag.ok{background:rgba(46,204,143,.18);color:var(--ok)}
+.tag.bad{background:rgba(255,93,93,.18);color:var(--bad)}
+.tag.maint{background:rgba(192,138,62,.22);color:#e7b56a}
+.tag.info{background:rgba(74,168,255,.18);color:var(--info)}
+.meta{color:var(--muted);font-size:13px;margin-top:4px}
+.row{display:flex;justify-content:space-between;font-size:13px;margin-top:10px}
+.bar{height:6px;background:var(--line);border-radius:3px;margin-top:4px;overflow:hidden}
+.bar i{display:block;height:100%;transition:width .5s}
+.chips{display:flex;flex-wrap:wrap;gap:6px}
+.chip{font-size:13px;padding:4px 10px;border-radius:6px;background:var(--panel);border:1px solid var(--line)}
+.chip.fail{color:var(--bad);border-color:var(--bad)}
+.chip.crit{color:var(--bad);border-color:var(--bad);background:rgba(255,93,93,.12);font-weight:700}
+.chip.warning{color:var(--warn);border-color:var(--warn);background:rgba(245,182,66,.12);font-weight:700}
+.chip.ok{color:var(--ok);border-color:rgba(46,204,143,.4)}
+.chip.info{color:var(--info);border-color:var(--info);background:rgba(74,168,255,.12);font-weight:700}
+.log-head{display:flex;justify-content:space-between;align-items:center;margin-bottom:10px}
+.log-head h2{margin:0}
+.log{background:var(--panel);border:1px solid var(--line);border-radius:12px;max-height:280px;overflow:auto}
+.log div{padding:8px 14px;border-bottom:1px solid var(--line);font-size:14px;display:flex;gap:12px}
+.log time{color:var(--muted);font-variant-numeric:tabular-nums;flex:none}
+.log .empty{color:var(--muted)}
+button{background:none;border:1px solid var(--line);color:var(--muted);border-radius:6px;padding:4px 10px;cursor:pointer;font:inherit;font-size:12px}
+#err{color:var(--warn);font-size:13px;margin-top:8px;min-height:18px}
+@media (max-width:600px){body{padding:16px}.clock{font-size:22px}}
+</style>
+</head>
+<body>
+<header>
+  <div>
+    <h1>HA2 高可用網站・即時監控</h1>
+    <div class="sub">VIP 192.168.20.50 ・ 每 3 秒更新</div>
+  </div>
+  <div>
+    <div class="clock" id="clock">--:--:--</div>
+    <div id="svc" class="status ok"><span class="dot"></span><span id="svcText">連線中</span></div>
+  </div>
+</header>
+
+<div class="kpis">
+  <div class="kpi"><div class="label">目前負載平衡器（持有 VIP）</div><div class="value" id="kLb">-</div><div class="hint">來源：HAProxy 回應標頭 X-LB-Node</div></div>
+  <div class="kpi"><div class="label">本次請求由</div><div class="value" id="kApp">-</div><div class="hint" id="kVer">-</div></div>
+  <div class="kpi"><div class="label">每秒請求數</div><div class="value" id="kRps">-</div><div class="hint">HAProxy 前端・15 秒平均</div></div>
+  <div class="kpi"><div class="label">網站伺服器</div><div class="value" id="kApps">-</div><div class="hint">服務中 / 線上</div></div>
+</div>
+
+<section>
+  <h2>目前告警（Prometheus → Alertmanager → Discord）</h2>
+  <div class="chips" id="alerts"><span class="chip">讀取中</span></div>
+</section>
+<section>
+  <h2>最近請求分配（新 → 舊）</h2>
+  <div class="chips" id="recent"></div>
+</section>
+<section><h2>負載平衡器</h2><div class="grid" id="gLb"></div></section>
+<section><h2>網站伺服器</h2><div class="grid" id="gApp"></div></section>
+<section><h2>管理主機</h2><div class="grid" id="gCtl"></div></section>
+<section>
+  <div class="log-head"><h2>事件紀錄</h2><button id="clear">清除</button></div>
+  <div class="log" id="log"></div>
+  <div id="err"></div>
+</section>
+
+<script>
+const CFG = { poll: 3000, warn: 60, hot: 80, probeTimeout: 1500, queryTimeout: 2500, scale: ['app-3', 'app-4'] };
+const ALERT_TXT = { HAProxyDown: 'HAProxy 停止', VIPOnBackup: 'VIP 在備援機', AppServerDown: '網站主機故障', InstanceDown: '主機停止回應', BackendQueueHigh: '排隊過多，自動擴展', BackendIdle: '流量低，自動縮減', HighCPU: 'CPU 過高' };
+const STATE_TXT = { UP: '服務中', DOWN: '故障', MAINT: '維護中', DRAIN: '排空中', NOLB: '不分配' };
+const $ = id => document.getElementById(id);
+const esc = s => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+
+let prevAlerts = null, prev = null, lastLb = null, wasDown = false, downAt = 0, serverOffset = 0, recent = [];
+let events = loadEvents();
+
+function loadEvents() {
+  try { return JSON.parse(localStorage.getItem('ha2-events')) || []; } catch (e) { return []; }
+}
+function saveEvents() {
+  try { localStorage.setItem('ha2-events', JSON.stringify(events)); } catch (e) {}
+}
+function now() { return new Date(Date.now() + serverOffset); }
+function hms(d) { return d.toLocaleTimeString('zh-TW', { hour12: false }); }
+
+function log(msg) {
+  events.unshift({ t: hms(now()), msg });
+  events = events.slice(0, 80);
+  saveEvents();
+  renderLog();
+}
+function renderLog() {
+  $('log').innerHTML = events.length
+    ? events.map(e => `<div><time>${esc(e.t)}</time><span>${esc(e.msg)}</span></div>`).join('')
+    : '<div class="empty">尚無事件</div>';
+}
+
+async function get(url, ms) {
+  const ctl = new AbortController();
+  const timer = setTimeout(() => ctl.abort(), ms);
+  try { return await fetch(url, { cache: 'no-store', signal: ctl.signal }); }
+  finally { clearTimeout(timer); }
+}
+
+// 透過 VIP 請求一次，取得「哪台 LB、哪台 app、什麼版本」
+async function probe() {
+  try {
+    const r = await get('/whoami.json?t=' + Date.now(), CFG.probeTimeout);
+    if (!r.ok) throw new Error(r.status);
+    const date = r.headers.get('date');
+    if (date) serverOffset = new Date(date).getTime() - Date.now();
+    const w = await r.json();
+    return { ok: true, lb: r.headers.get('x-lb-node') || '?', host: w.host, version: w.version };
+  } catch (e) {
+    return { ok: false };
+  }
+}
+
+// 經由 Nginx 代理查詢 Prometheus（只開放 query 這個唯讀 API）
+async function q(expr) {
+  const r = await get('/api/query?query=' + encodeURIComponent(expr), CFG.queryTimeout);
+  const j = await r.json();
+  if (j.status !== 'success') throw new Error(j.error || '查詢失敗');
+  return j.data.result;
+}
+const byHost = res => Object.fromEntries(res.map(x => [x.metric.host, x]));
+const num = x => (x ? parseFloat(x.value[1]) : NaN);
+
+function handleService(up) {
+  if (!up && !wasDown) { wasDown = true; downAt = Date.now(); log('服務中斷：VIP 沒有回應'); }
+  if (up && wasDown) { wasDown = false; log(`服務恢復（中斷約 ${((Date.now() - downAt) / 1000).toFixed(1)} 秒）`); }
+  $('svc').className = 'status ' + (up ? 'ok' : 'bad');
+  $('svcText').textContent = up ? '服務正常' : '服務中斷';
+}
+
+async function metrics() {
+  const [upN, upH, cpu, mem, srv, ver, rps, alerts] = await Promise.all([
+    q('up{job="node"}'),
+    q('up{job="haproxy"}'),
+    q('100 - avg by (host) (rate(node_cpu_seconds_total{mode="idle"}[30s])) * 100'),
+    q('(1 - node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes) * 100'),
+    q('haproxy_server_status{proxy="apps"} == 1'),
+    q('site_version_info'),
+    q('sum by (host) (rate(haproxy_frontend_http_requests_total{proxy="web_in"}[15s]))'),
+    q('ALERTS{alertstate="firing"}'),
+  ]);
+  renderAlerts(alerts);
+  const C = byHost(cpu), M = byHost(mem), H = byHost(upH), V = byHost(ver), R = byHost(rps);
+
+  // 後端狀態：優先採用持有 VIP 那台 LB 的看法
+  const S = {};
+  for (const x of srv) {
+    const s = x.metric.server;
+    if (!S[s] || x.metric.host === lastLb) S[s] = x.metric.state;
+  }
+
+  const nodes = upN.map(x => {
+    const h = x.metric.host;
+    return {
+      host: h,
+      online: x.value[1] === '1',
+      cpu: num(C[h]),
+      mem: num(M[h]),
+      hap: H[h] ? H[h].value[1] === '1' : null,
+      state: S[h] || null,
+      ver: V[h] ? V[h].metric.version : null,
+      rps: num(R[h]),
+    };
+  })
+    .filter(n => n.online || !CFG.scale.includes(n.host)) // 擴展節點不存在時不顯示卡片
+    .sort((a, b) => a.host.localeCompare(b.host));
+
+  diff(nodes);
+  render(nodes);
+  $('kRps').textContent = Math.round(rps.reduce((s, x) => s + num(x), 0));
+}
+
+function diff(nodes) {
+  const cur = Object.fromEntries(nodes.map(n => [n.host, n]));
+  if (prev) {
+    for (const h in cur) {
+      const n = cur[h], p = prev[h];
+      if (!p) { log(`節點加入：${h}`); continue; }
+      if (p.online !== n.online) log(`${h} ${n.online ? '恢復上線' : '離線'}`);
+      if (p.hap !== null && n.hap !== null && p.hap !== n.hap) log(`${h} HAProxy ${n.hap ? '恢復運作' : '停止'}`);
+      if (p.state && n.state && p.state !== n.state) log(`${h} 狀態：${STATE_TXT[p.state] || p.state} → ${STATE_TXT[n.state] || n.state}`);
+      if (p.ver && n.ver && p.ver !== n.ver) log(`${h} 版本更新：${p.ver} → ${n.ver}`);
+    }
+    for (const h in prev) if (!cur[h]) log(`節點移除：${h}`);
+  }
+  prev = cur;
+}
+
+const tag = (t, c) => `<span class="tag ${c || ''}">${esc(t)}</span>`;
+function bar(label, v) {
+  const ok = isFinite(v);
+  const color = !ok ? 'var(--line)' : v >= CFG.hot ? 'var(--bad)' : v >= CFG.warn ? 'var(--warn)' : 'var(--ok)';
+  return `<div class="row"><span>${label}</span><span>${ok ? v.toFixed(0) + '%' : '-'}</span></div>`
+       + `<div class="bar"><i style="width:${ok ? Math.min(v, 100) : 0}%;background:${color}"></i></div>`;
+}
+function shell(n, cls, tags, meta) {
+  return `<div class="card ${cls}"><div class="top"><span class="name">${esc(n.host)}</span><span class="tags">${tags.join('')}</span></div>`
+       + `<div class="meta">${meta}</div>${bar('CPU', n.cpu)}${bar('記憶體', n.mem)}</div>`;
+}
+
+function render(nodes) {
+  const lbs = nodes.filter(n => n.host.startsWith('lb-'));
+  const apps = nodes.filter(n => n.host.startsWith('app-'));
+  const others = nodes.filter(n => !n.host.startsWith('lb-') && !n.host.startsWith('app-'));
+
+  $('gLb').innerHTML = lbs.map(n => {
+    const tags = [];
+    let cls = 'ok';
+    const vip = n.host === lastLb;
+    if (vip) tags.push(tag('持有 VIP', 'info'));
+    if (!n.online) { cls = 'bad'; tags.push(tag('離線', 'bad')); }
+    else if (n.hap === false) { cls = 'bad'; tags.push(tag('HAProxy 停止', 'bad')); }
+    else tags.push(tag('HAProxy 運作中', 'ok'));
+    const meta = isFinite(n.rps) ? `${Math.round(n.rps)} 請求/秒` : '沒有流量資料';
+    return shell(n, cls + (vip ? ' vip' : ''), tags, meta);
+  }).join('');
+
+  let serving = 0;
+  $('gApp').innerHTML = apps.map(n => {
+    let cls = 'ok', t;
+    if (!n.online) { cls = 'bad'; t = tag('離線', 'bad'); }
+    else if (n.state === 'UP') { serving++; t = tag('服務中', 'ok'); }
+    else if (['MAINT', 'DRAIN', 'NOLB'].includes(n.state)) { cls = 'maint'; t = tag(STATE_TXT[n.state], 'maint'); }
+    else if (n.state) { cls = 'bad'; t = tag(STATE_TXT[n.state] || n.state, 'bad'); }
+    else t = tag('狀態未知');
+    if (cls === 'ok' && n.cpu >= CFG.hot) cls = 'warn';
+    const meta = `版本 ${esc(n.ver || '-')}${CFG.scale.includes(n.host) ? ' ・ 擴展節點' : ''}`;
+    return shell(n, cls, [t], meta);
+  }).join('');
+  $('kApps').textContent = `${serving} / ${apps.filter(n => n.online).length}`;
+
+  $('gCtl').innerHTML = others.map(n =>
+    shell(n, n.online ? 'ok' : 'bad', [tag(n.online ? '線上' : '離線', n.online ? 'ok' : 'bad')], 'Ansible、Prometheus、Grafana')
+  ).join('');
+}
+
+function renderAlerts(list) {
+  const items = list.map(a => {
+    const m = a.metric, who = m.host || m.server || '';
+    return { key: m.alertname + '|' + who, text: (ALERT_TXT[m.alertname] || m.alertname) + (who ? '：' + who : ''), sev: m.severity };
+  });
+  const cur = new Set(items.map(i => i.key));
+  if (prevAlerts) {
+    for (const i of items) if (!prevAlerts.has(i.key)) log('告警發生：' + i.text);
+    for (const k of prevAlerts) if (!cur.has(k)) {
+      const [name, who] = k.split('|');
+      log('告警解除：' + (ALERT_TXT[name] || name) + (who ? '：' + who : ''));
+    }
+  }
+  prevAlerts = cur;
+  $('alerts').innerHTML = items.length
+    ? items.map(i => `<span class="chip ${i.sev === 'critical' ? 'crit' : i.sev === 'info' ? 'info' : 'warning'}">${esc(i.text)}</span>`).join('')
+    : '<span class="chip ok">目前沒有告警</span>';
+}
+
+function renderRecent() {
+  $('recent').innerHTML = recent.map(h => `<span class="chip${h === '失敗' ? ' fail' : ''}">${esc(h)}</span>`).join('');
+}
+
+async function tick() {
+  const a = await probe();
+  const b = a.ok ? await probe() : a;
+  recent.unshift(a.ok ? a.host : '失敗');
+  if (a.ok) recent.unshift(b.ok ? b.host : '失敗');
+  recent = recent.slice(0, 16);
+  renderRecent();
+
+  handleService(a.ok || b.ok);
+  const ok = b.ok ? b : a.ok ? a : null;
+  if (ok) {
+    if (lastLb && ok.lb !== lastLb) log(`VIP 切換：${lastLb} → ${ok.lb}`);
+    lastLb = ok.lb;
+    $('kLb').textContent = ok.lb;
+    $('kApp').textContent = ok.host;
+    $('kVer').textContent = '版本 ' + ok.version;
+    try { await metrics(); $('err').textContent = ''; }
+    catch (e) { $('err').textContent = '無法取得監控數據：' + e.message; }
+  }
+  setTimeout(tick, CFG.poll);
+}
+
+$('clear').onclick = () => { events = []; saveEvents(); renderLog(); };
+setInterval(() => { $('clock').textContent = hms(now()); }, 1000);
+renderLog();
+tick();
+</script>
+</body>
+</html>

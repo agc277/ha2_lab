@@ -1,0 +1,13 @@
+# 網站版本（滾動更新時可用 -e site_version=v2 覆蓋）
+site_version: v1
+
+# VRRP 認證密碼（最多 8 字元，實驗用，正式環境請改用 Ansible Vault）
+vrrp_auth_pass: Ha2Lab26
+
+# 監控軟體版本（下載 404 時到 https://prometheus.io/download/ 查最新版）
+node_exporter_version: 1.12.1
+prometheus_version: 3.14.0
+alertmanager_version: 0.31.1
+
+# 自動擴展／縮減：Alertmanager 把 BackendQueueHigh、BackendIdle 送到 Windows 的 autoscale.py
+autoscale_webhook_url: "http://192.168.20.1:9095/alert"

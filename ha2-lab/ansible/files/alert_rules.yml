@@ -1,0 +1,62 @@
+groups:
+  - name: ha2
+    rules:
+      - alert: HAProxyDown
+        expr: up{job="haproxy"} == 0
+        for: 10s
+        labels:
+          severity: critical
+        annotations:
+          summary: "{{ $labels.host }} 的 HAProxy 停止回應，VIP 應已轉移到另一台"
+
+      - alert: VIPOnBackup
+        expr: sum by (host) (rate(haproxy_frontend_http_requests_total{proxy="web_in", host="lb-b"}[30s])) > 0.2
+        for: 10s
+        labels:
+          severity: warning
+        annotations:
+          summary: "VIP 目前在備援機 lb-b，主機 lb-a 可能故障"
+
+      - alert: AppServerDown
+        expr: max by (server) (haproxy_server_status{proxy="apps", state="DOWN", server!~"app-3|app-4"}) == 1
+        for: 10s
+        labels:
+          severity: critical
+        annotations:
+          summary: "網站主機 {{ $labels.server }} 健康檢查失敗，已移出負載平衡"
+
+      - alert: InstanceDown
+        expr: up{job="node", host!~"app-3|app-4"} == 0
+        for: 30s
+        labels:
+          severity: critical
+        annotations:
+          summary: "主機 {{ $labels.host }} 停止回應超過 30 秒"
+
+      - alert: BackendQueueHigh
+        expr: max(haproxy_backend_current_queue{proxy="apps"}) > 5
+        for: 15s
+        labels:
+          severity: warning
+        annotations:
+          summary: "後端佇列有 {{ $value }} 個請求在排隊，自動擴展 app-3、app-4"
+
+      # 自動縮減：擴展節點在線上，但整體流量已降到很低
+      - alert: BackendIdle
+        expr: >
+          sum(rate(haproxy_backend_http_requests_total{proxy="apps"}[1m])) < 30
+          and on()
+          count(haproxy_server_status{proxy="apps", server=~"app-3|app-4", state="UP"} == 1) > 0
+        for: 1m
+        labels:
+          severity: info
+        annotations:
+          summary: "流量已低於每秒 30 個請求達 1 分鐘，自動縮減 app-3、app-4"
+
+      - alert: HighCPU
+        expr: 100 - avg by (host) (rate(node_cpu_seconds_total{mode="idle"}[1m])) * 100 > 80
+        for: 1m
+        labels:
+          severity: warning
+        annotations:
+          summary: "{{ $labels.host }} CPU 使用率超過 80% 已 1 分鐘（目前 {{ $value | printf \"%.0f\" }}%）"

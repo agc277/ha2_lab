@@ -1,0 +1,49 @@
+- name: 安裝 Grafana
+  hosts: monitor
+  tasks:
+    - name: 加入 Grafana 官方套件庫
+      yum_repository:
+        name: grafana
+        description: Grafana OSS
+        baseurl: https://rpm.grafana.com
+        gpgcheck: yes
+        repo_gpgcheck: yes
+        gpgkey: https://rpm.grafana.com/gpg.key
+
+    - name: 安裝 Grafana
+      dnf:
+        name: grafana
+        state: present
+
+    - name: 自動設定 Prometheus 資料來源
+      copy:
+        dest: /etc/grafana/provisioning/datasources/prometheus.yml
+        content: |
+          apiVersion: 1
+          datasources:
+            - name: Prometheus
+              type: prometheus
+              access: proxy
+              url: http://localhost:9090
+              isDefault: true
+      notify: 重啟 Grafana
+
+    - name: 開放 3000（internal zone）
+      ansible.posix.firewalld:
+        port: 3000/tcp
+        zone: internal
+        permanent: yes
+        immediate: yes
+        state: enabled
+
+    - name: 啟動 Grafana
+      systemd:
+        name: grafana-server
+        state: started
+        enabled: yes
+
+  handlers:
+    - name: 重啟 Grafana
+      systemd:
+        name: grafana-server
+        state: restarted

@@ -1,0 +1,10 @@
+location = /whoami.json {
+    add_header Cache-Control "no-store";
+}
+
+# 只開放 Prometheus 唯讀的 query API，給監控頁使用
+location = /api/query {
+    proxy_pass http://{{ hostvars['ctl'].ansible_host }}:9090/api/v1/query;
+    proxy_connect_timeout 2s;
+    proxy_read_timeout 5s;
+}

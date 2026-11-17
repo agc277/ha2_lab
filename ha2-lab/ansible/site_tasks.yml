@@ -1,0 +1,22 @@
+# apps.yml 與 rolling.yml 共用的網站內容任務
+- name: 放入監控首頁
+  copy:
+    src: files/index.html
+    dest: /usr/share/nginx/html/index.html
+
+- name: 放入本機身分資訊
+  template:
+    src: templates/whoami.json.j2
+    dest: /usr/share/nginx/html/whoami.json
+
+- name: 建立 textfile 目錄
+  file:
+    path: /var/lib/node_exporter
+    state: directory
+    mode: "0755"
+
+- name: 回報網站版本給 Prometheus
+  template:
+    src: templates/site.prom.j2
+    dest: /var/lib/node_exporter/site.prom
+    mode: "0644"

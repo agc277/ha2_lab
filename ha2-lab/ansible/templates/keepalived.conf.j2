@@ -1,0 +1,39 @@
+global_defs {
+    router_id {{ inventory_hostname }}
+    script_user root
+    enable_script_security
+}
+
+vrrp_script chk_haproxy {
+    script "/usr/bin/killall -0 haproxy"
+    interval 2
+    weight -30
+    fall 2
+    rise 2
+}
+
+vrrp_instance VI_HA2 {
+    state {{ 'MASTER' if inventory_hostname == 'lb-a' else 'BACKUP' }}
+    interface ens160
+    virtual_router_id 61
+    priority {{ 120 if inventory_hostname == 'lb-a' else 100 }}
+    advert_int 1
+    unicast_src_ip {{ ansible_host }}
+    unicast_peer {
+{% for h in groups['balancers'] %}
+{% if h != inventory_hostname %}
+        {{ hostvars[h].ansible_host }}
+{% endif %}
+{% endfor %}
+    }
+    authentication {
+        auth_type PASS
+        auth_pass {{ vrrp_auth_pass }}
+    }
+    virtual_ipaddress {
+        192.168.20.50/24
+    }
+    track_script {
+        chk_haproxy
+    }
+}

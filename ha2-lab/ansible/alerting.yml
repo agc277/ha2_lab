@@ -1,0 +1,95 @@
+# 告警：Alertmanager 收到 Prometheus 的告警後送到 Discord
+# 先建立 group_vars/monitor/secret.yml（參考 secret.yml.example）
+- name: 安裝 Alertmanager
+  hosts: monitor
+  vars:
+    am_dir: "/opt/alertmanager-{{ alertmanager_version }}.linux-amd64"
+  tasks:
+    - name: 確認已設定 Discord Webhook
+      assert:
+        that: discord_webhook_url is defined and discord_webhook_url is match('https://')
+        fail_msg: "請先建立 group_vars/monitor/secret.yml 並填入 discord_webhook_url"
+
+    - name: 建立服務帳號
+      user:
+        name: alertmanager
+        system: yes
+        shell: /sbin/nologin
+        create_home: no
+
+    - name: 下載並解壓
+      unarchive:
+        src: "https://github.com/prometheus/alertmanager/releases/download/v{{ alertmanager_version }}/alertmanager-{{ alertmanager_version }}.linux-amd64.tar.gz"
+        dest: /opt
+        remote_src: yes
+        creates: "{{ am_dir }}/alertmanager"
+
+    - name: 建立 /opt/alertmanager 捷徑
+      file:
+        src: "{{ am_dir }}"
+        dest: /opt/alertmanager
+        state: link
+
+    - name: 修正 SELinux 標籤
+      command: "restorecon -Rv {{ am_dir }}"
+      register: r
+      changed_when: "'Relabeled' in r.stdout"
+
+    - name: 建立設定與資料目錄
+      file:
+        path: "{{ item }}"
+        state: directory
+        owner: alertmanager
+        group: alertmanager
+      loop: [/etc/alertmanager, /var/lib/alertmanager]
+
+    - name: 放入設定檔
+      template:
+        src: templates/alertmanager.yml.j2
+        dest: /etc/alertmanager/alertmanager.yml
+        owner: alertmanager
+        mode: "0640"
+        validate: /opt/alertmanager/amtool check-config %s
+      notify: 重啟 Alertmanager
+
+    - name: systemd 服務檔
+      copy:
+        dest: /etc/systemd/system/alertmanager.service
+        content: |
+          [Unit]
+          Description=Alertmanager
+          After=network-online.target
+
+          [Service]
+          User=alertmanager
+          ExecStart=/opt/alertmanager/alertmanager \
+            --config.file=/etc/alertmanager/alertmanager.yml \
+            --storage.path=/var/lib/alertmanager \
+            --web.listen-address=:9093
+          Restart=on-failure
+
+          [Install]
+          WantedBy=multi-user.target
+      notify: 重啟 Alertmanager
+
+    - name: 開放 9093（internal zone）
+      ansible.posix.firewalld:
+        port: 9093/tcp
+        zone: internal
+        permanent: yes
+        immediate: yes
+        state: enabled
+
+    - name: 啟動 Alertmanager
+      systemd:
+        name: alertmanager
+        state: started
+        enabled: yes
+        daemon_reload: yes
+
+  handlers:
+    - name: 重啟 Alertmanager
+      systemd:
+        name: alertmanager
+        state: restarted
+        daemon_reload: yes

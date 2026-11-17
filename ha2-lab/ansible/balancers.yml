@@ -1,0 +1,59 @@
+- name: 部署負載平衡器
+  hosts: balancers
+  tasks:
+    - name: 安裝套件
+      dnf:
+        name: [haproxy, keepalived, psmisc, tcpdump, python3-libsemanage, socat]
+        state: present
+
+    - name: SELinux 允許 HAProxy 使用任意 port
+      ansible.posix.seboolean:
+        name: haproxy_connect_any
+        state: yes
+        persistent: yes
+
+    - name: 放入 HAProxy 設定
+      template:
+        src: templates/haproxy.cfg.j2
+        dest: /etc/haproxy/haproxy.cfg
+        validate: haproxy -c -f %s
+      notify: 重啟 HAProxy
+
+    - name: 放入 Keepalived 設定
+      template:
+        src: templates/keepalived.conf.j2
+        dest: /etc/keepalived/keepalived.conf
+      notify: 重啟 Keepalived
+
+    - name: 開放 80 與狀態頁
+      ansible.posix.firewalld:
+        port: "{{ item }}"
+        permanent: yes
+        immediate: yes
+        state: enabled
+      loop: [80/tcp, 8405/tcp]
+
+    - name: 允許 VRRP 協定
+      ansible.posix.firewalld:
+        rich_rule: 'rule protocol value="vrrp" accept'
+        permanent: yes
+        immediate: yes
+        state: enabled
+
+    - name: 啟動服務
+      service:
+        name: "{{ item }}"
+        state: started
+        enabled: yes
+      loop: [haproxy, keepalived]
+
+  handlers:
+    - name: 重啟 HAProxy
+      service:
+        name: haproxy
+        state: restarted
+
+    - name: 重啟 Keepalived
+      service:
+        name: keepalived
+        state: restarted
